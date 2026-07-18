@@ -24,6 +24,10 @@ MCP_HOST = os.environ.get("MCP_HOST", "0.0.0.0")
 MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))
 HTTP_TIMEOUT = 30
 
+# Shared secret presented to the Flask app so its `require_auth` decorator lets
+# this server's calls through even without a logged-in session.
+MCP_API_KEY = os.environ.get("MCP_API_KEY", "")
+
 mcp = FastMCP("nl-image-gen", host=MCP_HOST, port=MCP_PORT)
 
 
@@ -40,6 +44,9 @@ def _request(method: str, path: str, **kwargs) -> dict:
     running job's /status body) legitimately include their own "error": null
     field as domain data, not a transport failure.
     """
+    kwargs.setdefault("headers", {})
+    kwargs["headers"]["X-API-Key"] = MCP_API_KEY
+
     try:
         resp = requests.request(method, f"{NL_IMAGE_GEN_URL}{path}", timeout=HTTP_TIMEOUT, **kwargs)
     except requests.exceptions.RequestException as e:

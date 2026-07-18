@@ -11,6 +11,11 @@ services:
       LLM_PORT: "11434"
       LLM_MODEL: qwen3:8b
       GALLERY_DB_PATH: /data/gallery.db
+      SECRET_KEY: "${SECRET_KEY:-dev-insecure-change-me}"
+      MCP_API_KEY: "${MCP_API_KEY:-}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      OAUTH_REDIRECT_BASE: "${OAUTH_REDIRECT_BASE:-}"
     volumes:
       - gallery-data:/data
     restart: unless-stopped
@@ -24,6 +29,7 @@ services:
       NL_IMAGE_GEN_PUBLIC_URL: http://192.168.50.46:${PORT:-5001}
       MCP_HOST: 0.0.0.0
       MCP_PORT: "${MCP_PORT:-8000}"
+      MCP_API_KEY: "${MCP_API_KEY:-}"
     depends_on:
       - nl-image-gen
     restart: unless-stopped
