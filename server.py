@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""Flask web server for natural-language image generation.
+
+Serves a single-page Vue-CDN UI, runs generation jobs on a background worker
+thread (serializing them against the shared GPU-backed ComfyUI instance),
+tracks a small SQLite gallery history, and proxies generated images from
+ComfyUI's /view endpoint so the app never needs local filesystem access.
+"""
+import queue
+import re
+import sqlite3
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+from flask import Flask, Response, jsonify, request
+
+import comfy_client
+import llm_bridge
+from config import COMFY_URL, GALLERY_DB_PATH, PORT
+from workflow_builder import build_workflow
+
+app = Flask(__name__)
+
+# index.html is a self-contained Vue app whose `{{ }}` interpolation syntax
+# collides with Jinja2's own `{{ }}` templating. We never need server-side
+# templating for it, so serve it as a raw static file instead of routing it
+# through render_template (which would make Jinja try, and fail, to resolve
+# Vue expressions like `{{ item.prompt }}` server-side).
+_INDEX_HTML_PATH = Path(__file__).parent / "templates" / "index.html"
+
+# --- Job queue / worker -----------------------------------------------------
+
+job_queue: "queue.Queue[str]" = queue.Queue()
+jobs: dict = {}
+jobs_lock = threading.Lock()
+
+# Bare filename ComfyUI would produce via SaveImage, e.g. nl_gen_00007_.png
+_FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
+
+
+def _set_job(job_id: str, **fields):
+    with jobs_lock:
+        jobs[job_id].update(fields)
+
+
+def worker():
+    while True:
+        job_id = job_queue.get()
+        try:
+            with jobs_lock:
+                prompt = jobs[job_id]["prompt"]
+            _set_job(job_id, status="running")
+
+            checkpoints = comfy_client.list_checkpoints()
+            if not checkpoints:
+                raise RuntimeError("No checkpoints found on ComfyUI server.")
+
+            spec = llm_bridge.build_spec(prompt, checkpoints)
+            workflow, save_node_id = build_workflow(spec)
+            prompt_id = comfy_client.submit_workflow(workflow, client_id=job_id)
+
+            def on_progress(step, total_steps):
+                _set_job(job_id, step=step, total_steps=total_steps)
+
+            try:
+                image = comfy_client.wait_for_result_ws(
+                    prompt_id, client_id=job_id, save_node_id=save_node_id,
+                    on_progress=on_progress,
+                )
+            except Exception:
+                # websocket path failed for a reason unrelated to generation
+                # (e.g. connection drop) -- fall back to HTTP polling so the
+                # job still completes.
+                image = comfy_client.wait_for_result(prompt_id, save_node_id=save_node_id)
+            filename = image["filename"]
+
+            _set_job(job_id, status="done", filename=filename, error=None)
+            _record_generation(job_id, prompt, filename)
+        except Exception as e:  # noqa: BLE001 - worker must never die
+            _set_job(job_id, status="error", error=str(e))
+        finally:
+            job_queue.task_done()
+
+
+# --- SQLite gallery history --------------------------------------------------
+
+
+def init_db():
+    conn = sqlite3.connect(GALLERY_DB_PATH)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS generations (
+                job_id TEXT PRIMARY KEY,
+                prompt TEXT,
+                filename TEXT,
+                timestamp TEXT
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _record_generation(job_id: str, prompt: str, filename: str):
+    timestamp = datetime.now(timezone.utc).isoformat()
+    conn = sqlite3.connect(GALLERY_DB_PATH)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO generations (job_id, prompt, filename, timestamp) VALUES (?, ?, ?, ?)",
+            (job_id, prompt, filename, timestamp),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _fetch_gallery(limit: int = 50) -> list:
+    conn = sqlite3.connect(GALLERY_DB_PATH)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT job_id, prompt, filename, timestamp FROM generations ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+# --- Routes -------------------------------------------------------------
+
+
+@app.route("/")
+def index():
+    return Response(_INDEX_HTML_PATH.read_text(), mimetype="text/html")
+
+
+@app.route("/generate", methods=["POST"])
+def generate_route():
+    body = request.get_json(silent=True) or {}
+    prompt = (body.get("prompt") or "").strip()
+    clarified = bool(body.get("clarified"))
+
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
+
+    if not clarified:
+        assessment = llm_bridge.assess_ambiguity(prompt)
+        if assessment.get("needs_clarification"):
+            return jsonify({"status": "clarify", "question": assessment.get("question")})
+
+    job_id = uuid.uuid4().hex
+    with jobs_lock:
+        jobs[job_id] = {
+            "status": "queued",
+            "prompt": prompt,
+            "filename": None,
+            "error": None,
+            "step": None,
+            "total_steps": None,
+        }
+    job_queue.put(job_id)
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/status/<job_id>")
+def status_route(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            return jsonify({"error": "unknown job_id"}), 404
+        return jsonify(dict(job))
+
+
+@app.route("/gallery")
+def gallery_route():
+    return jsonify(_fetch_gallery())
+
+
+@app.route("/checkpoints")
+def checkpoints_route():
+    try:
+        checkpoints = comfy_client.list_checkpoints()
+    except Exception as e:  # noqa: BLE001 - surface any ComfyUI-reachability issue uniformly
+        return jsonify({"error": str(e)}), 502
+    return jsonify(checkpoints)
+
+
+@app.route("/image/<name>")
+def image_route(name):
+    if not _FILENAME_RE.match(name):
+        return jsonify({"error": "invalid filename"}), 400
+
+    upstream = requests.get(
+        f"{COMFY_URL}/view",
+        params={"filename": name, "type": "output"},
+        stream=True,
+        timeout=30,
+    )
+    if upstream.status_code != 200:
+        return jsonify({"error": "image not found"}), 404
+
+    content_type = upstream.headers.get("content-type", "application/octet-stream")
+    return Response(upstream.iter_content(chunk_size=8192), content_type=content_type)
+
+
+# --- Startup -------------------------------------------------------------
+
+init_db()
+threading.Thread(target=worker, daemon=True).start()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)

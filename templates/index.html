@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NL Image Gen</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #14151a;
+    --card: #1e2028;
+    --border: #33353f;
+    --text: #eceef2;
+    --muted: #9a9ca6;
+    --accent: #6d8dfd;
+    --accent-hover: #5a7cf0;
+    --error: #f06565;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 1rem;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; font-weight: 600; margin: 0.5rem 0 1rem; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  textarea {
+    width: 100%;
+    min-height: 4.5rem;
+    resize: vertical;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-size: 1rem;
+    font-family: inherit;
+  }
+  input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    font-family: inherit;
+  }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem 1.1rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 0.6rem;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .status-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.75rem; color: var(--muted); font-size: 0.9rem; }
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-track {
+    width: 100%;
+    height: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 0.6rem;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width 0.3s ease;
+  }
+  .error-text { color: var(--error); font-size: 0.9rem; margin-top: 0.5rem; }
+  .clarify-question { font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text); }
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+  .gallery figure {
+    margin: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .gallery img { display: block; width: 100%; height: 180px; object-fit: cover; }
+  .gallery figcaption {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+    max-height: 3.4em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .empty { color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div id="app" class="wrap">
+  <h1>Family Image Generator</h1>
+
+  <div class="card">
+    <textarea v-model="prompt" placeholder="Describe the image you want..." :disabled="submitting"></textarea>
+
+    <div v-if="clarifyQuestion">
+      <p class="clarify-question">{{ clarifyQuestion }}</p>
+      <input type="text" v-model="clarifyAnswer" placeholder="Your answer" :disabled="submitting" @keyup.enter="submitClarify">
+      <button @click="submitClarify" :disabled="submitting || !clarifyAnswer.trim()">Continue</button>
+    </div>
+    <div v-else>
+      <button @click="submit" :disabled="submitting || !prompt.trim()">Generate</button>
+    </div>
+
+    <div class="status-row" v-if="submitting || jobStatus">
+      <div class="spinner" v-if="isBusy"></div>
+      <span>{{ statusText }}</span>
+    </div>
+    <div class="progress-track" v-if="jobStatus === 'running' && totalSteps">
+      <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
+    </div>
+    <div class="error-text" v-if="errorText">{{ errorText }}</div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size:1.05rem;margin-top:0;">Gallery</h2>
+    <div class="gallery" v-if="gallery.length">
+      <figure v-for="item in gallery" :key="item.job_id">
+        <img :src="'/image/' + item.filename" :alt="item.prompt" loading="lazy">
+        <figcaption>{{ item.prompt }}</figcaption>
+      </figure>
+    </div>
+    <p class="empty" v-else>No images yet. Generate your first one above!</p>
+  </div>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      prompt: "",
+      clarifyQuestion: null,
+      clarifyAnswer: "",
+      basePrompt: "",
+      jobId: null,
+      jobStatus: null,
+      step: null,
+      totalSteps: null,
+      submitting: false,
+      errorText: "",
+      gallery: [],
+      pollTimer: null,
+    };
+  },
+  computed: {
+    isBusy() {
+      return this.submitting || this.jobStatus === "queued" || this.jobStatus === "running";
+    },
+    statusText() {
+      if (this.jobStatus === "queued") return "Queued...";
+      if (this.jobStatus === "running") {
+        if (this.totalSteps) return `Generating... step ${this.step}/${this.totalSteps}`;
+        return "Generating...";
+      }
+      if (this.jobStatus === "done") return "Done!";
+      if (this.submitting) return "Checking prompt...";
+      return "";
+    },
+    progressPct() {
+      if (!this.totalSteps) return 0;
+      return Math.min(100, Math.round((this.step / this.totalSteps) * 100));
+    },
+  },
+  methods: {
+    async submit() {
+      this.errorText = "";
+      this.basePrompt = this.prompt.trim();
+      await this.doGenerate(this.basePrompt, false);
+    },
+    async submitClarify() {
+      if (!this.clarifyAnswer.trim()) return;
+      this.errorText = "";
+      const combined = `${this.basePrompt} ${this.clarifyAnswer.trim()}`;
+      this.clarifyQuestion = null;
+      await this.doGenerate(combined, true);
+    },
+    async doGenerate(promptText, clarified) {
+      this.submitting = true;
+      this.jobStatus = null;
+      this.step = null;
+      this.totalSteps = null;
+      try {
+        const res = await fetch("/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: promptText, clarified }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.errorText = data.error || "Request failed.";
+          this.submitting = false;
+          return;
+        }
+        if (data.status === "clarify") {
+          this.clarifyQuestion = data.question;
+          this.clarifyAnswer = "";
+          this.submitting = false;
+          return;
+        }
+        this.jobId = data.job_id;
+        this.jobStatus = "queued";
+        this.submitting = false;
+        this.pollStatus();
+      } catch (e) {
+        this.errorText = "Network error: " + e;
+        this.submitting = false;
+      }
+    },
+    pollStatus() {
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.pollTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`/status/${this.jobId}`);
+          const data = await res.json();
+          if (!res.ok) {
+            this.errorText = data.error || "Status check failed.";
+            clearInterval(this.pollTimer);
+            return;
+          }
+          this.jobStatus = data.status;
+          this.step = data.step;
+          this.totalSteps = data.total_steps;
+          if (data.status === "done") {
+            clearInterval(this.pollTimer);
+            this.gallery.unshift({
+              job_id: this.jobId,
+              prompt: this.basePrompt,
+              filename: data.filename,
+            });
+            this.prompt = "";
+          } else if (data.status === "error") {
+            clearInterval(this.pollTimer);
+            this.errorText = data.error || "Generation failed.";
+          }
+        } catch (e) {
+          this.errorText = "Network error: " + e;
+          clearInterval(this.pollTimer);
+        }
+      }, 2000);
+    },
+    async loadGallery() {
+      try {
+        const res = await fetch("/gallery");
+        this.gallery = await res.json();
+      } catch (e) {
+        // gallery load failure is non-fatal
+      }
+    },
+  },
+  mounted() {
+    this.loadGallery();
+  },
+}).mount("#app");
+</script>
+</body>
+</html>

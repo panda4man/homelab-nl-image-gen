@@ -1,0 +1,32 @@
+services:
+  nl-image-gen:
+    build: .
+    ports:
+      - "${PORT:-5001}:${PORT:-5001}"
+    environment:
+      PORT: "${PORT:-5001}"
+      COMFY_HOST: 192.168.50.121
+      COMFY_PORT: "8188"
+      LLM_HOST: 192.168.50.46
+      LLM_PORT: "11434"
+      LLM_MODEL: qwen3:8b
+      GALLERY_DB_PATH: /data/gallery.db
+    volumes:
+      - gallery-data:/data
+    restart: unless-stopped
+
+  nl-image-gen-mcp:
+    build: ./mcp_server
+    ports:
+      - "${MCP_PORT:-8000}:${MCP_PORT:-8000}"
+    environment:
+      NL_IMAGE_GEN_URL: http://nl-image-gen:${PORT:-5001}
+      NL_IMAGE_GEN_PUBLIC_URL: http://192.168.50.46:${PORT:-5001}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "${MCP_PORT:-8000}"
+    depends_on:
+      - nl-image-gen
+    restart: unless-stopped
+
+volumes:
+  gallery-data:
