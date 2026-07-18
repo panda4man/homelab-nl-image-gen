@@ -1,3 +1,5 @@
 requests
 flask
 websocket-client
+flask-login
+authlib

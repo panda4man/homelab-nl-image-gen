@@ -117,6 +117,23 @@
     text-overflow: ellipsis;
   }
   .empty { color: var(--muted); font-size: 0.9rem; }
+  .topnav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+  .topnav .user { color: var(--muted); font-size: 0.9rem; }
+  .topnav button {
+    margin-top: 0;
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+  .topnav button:hover:not(:disabled) { background: var(--border); }
   .lightbox {
     position: fixed;
     inset: 0;
@@ -150,6 +167,13 @@
 </head>
 <body>
 <div id="app" class="wrap">
+  <div class="topnav">
+    <span class="user" v-if="user">Signed in as {{ user.username }}</span>
+    <span class="user" v-else></span>
+    <form method="post" action="/logout" style="display:inline">
+      <button type="submit">Logout</button>
+    </form>
+  </div>
   <h1>Family Image Generator</h1>
 
   <div class="card">
@@ -210,6 +234,7 @@ createApp({
       gallery: [],
       pollTimer: null,
       selectedImage: null,
+      user: null,
     };
   },
   computed: {
@@ -281,6 +306,11 @@ createApp({
       this.pollTimer = setInterval(async () => {
         try {
           const res = await fetch(`/status/${this.jobId}`);
+          if (res.status === 401) {
+            clearInterval(this.pollTimer);
+            window.location.href = "/login";
+            return;
+          }
           const data = await res.json();
           if (!res.ok) {
             this.errorText = data.error || "Status check failed.";
@@ -311,13 +341,30 @@ createApp({
     async loadGallery() {
       try {
         const res = await fetch("/gallery");
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
         this.gallery = await res.json();
       } catch (e) {
         // gallery load failure is non-fatal
       }
     },
+    async loadUser() {
+      try {
+        const res = await fetch("/me");
+        if (res.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+        this.user = await res.json();
+      } catch (e) {
+        // user load failure is non-fatal
+      }
+    },
   },
   mounted() {
+    this.loadUser();
     this.loadGallery();
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.selectedImage = null;

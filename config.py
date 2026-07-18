@@ -29,3 +29,20 @@ EMBED_PORT = int(os.environ.get("EMBED_PORT", "11435"))
 EMBED_URL = f"http://{EMBED_HOST}:{EMBED_PORT}"
 
 GALLERY_DB_PATH = os.environ.get("GALLERY_DB_PATH", str(Path(__file__).parent / "gallery.db"))
+
+# --- Auth / sessions --------------------------------------------------------
+# Flask session-cookie signing key. MUST be set (and kept secret) in any real
+# deployment; the insecure fallback exists only so a fresh checkout boots.
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-insecure-change-me")
+
+# Shared secret the MCP server presents via the X-API-Key header. Images it
+# generates are stored unowned (user_id NULL) and tagged origin='ai'.
+MCP_API_KEY = os.environ.get("MCP_API_KEY", "")
+
+# Google OAuth (OIDC) credentials. Leave blank to disable the Google button.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+# Public base URL the browser reaches this app at (e.g. a Tailscale hostname),
+# used to build the Google OAuth callback URL. Blank -> derive from the request.
+OAUTH_REDIRECT_BASE = os.environ.get("OAUTH_REDIRECT_BASE", "").rstrip("/")
