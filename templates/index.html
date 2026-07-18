@@ -107,7 +107,7 @@
     border-radius: 10px;
     overflow: hidden;
   }
-  .gallery img { display: block; width: 100%; height: 180px; object-fit: cover; }
+  .gallery img { display: block; width: 100%; height: 180px; object-fit: cover; cursor: zoom-in; }
   .gallery figcaption {
     padding: 0.4rem 0.55rem;
     font-size: 0.78rem;
@@ -117,6 +117,35 @@
     text-overflow: ellipsis;
   }
   .empty { color: var(--muted); font-size: 0.9rem; }
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.9);
+    overflow: auto;
+    z-index: 1000;
+    padding: 2.5rem 1rem 1rem;
+  }
+  .lightbox img {
+    display: block;
+    margin: 0 auto;
+    max-width: none;
+  }
+  .lightbox-close {
+    position: fixed;
+    top: 0.75rem;
+    right: 1rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 1001;
+    margin-top: 0;
+  }
 </style>
 </head>
 <body>
@@ -149,11 +178,16 @@
     <h2 style="font-size:1.05rem;margin-top:0;">Gallery</h2>
     <div class="gallery" v-if="gallery.length">
       <figure v-for="item in gallery" :key="item.job_id">
-        <img :src="'/image/' + item.filename" :alt="item.prompt" loading="lazy">
+        <img :src="'/image/' + item.filename" :alt="item.prompt" loading="lazy" @click="selectedImage = item">
         <figcaption>{{ item.prompt }}</figcaption>
       </figure>
     </div>
     <p class="empty" v-else>No images yet. Generate your first one above!</p>
+  </div>
+
+  <div class="lightbox" v-if="selectedImage" @click="selectedImage = null">
+    <button class="lightbox-close" @click="selectedImage = null">✕</button>
+    <img :src="'/image/' + selectedImage.filename" :alt="selectedImage.prompt">
   </div>
 </div>
 
@@ -175,6 +209,7 @@ createApp({
       errorText: "",
       gallery: [],
       pollTimer: null,
+      selectedImage: null,
     };
   },
   computed: {
@@ -284,6 +319,9 @@ createApp({
   },
   mounted() {
     this.loadGallery();
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.selectedImage = null;
+    });
   },
 }).mount("#app");
 </script>
