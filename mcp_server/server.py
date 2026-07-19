@@ -82,9 +82,14 @@ def generate_image(prompt: str, clarified: bool = False) -> dict:
     already confident the prompt is specific.
 
     Returns one of:
-      {"status": "queued", "job_id": str}
+      {"status": "queued", "job_id": str, "queue_position": int, "queue_depth": int}
       {"status": "clarify", "question": str}
       {"status": "error", "error": str}
+
+    While queued, also returns `queue_position` (int, 0-indexed number of jobs
+    ahead that must finish first; 0 means yours is next to run) and
+    `queue_depth` (int, total unfinished jobs on the server). Each job typically
+    takes 15s-3min, so `queue_position` times that range is a rough wait estimate.
     """
     result = _request("POST", "/generate", json={"prompt": prompt, "clarified": clarified})
 
@@ -93,7 +98,12 @@ def generate_image(prompt: str, clarified: bool = False) -> dict:
     if result.get("status") == "clarify":
         return {"status": "clarify", "question": result.get("question")}
     if "job_id" in result:
-        return {"status": "queued", "job_id": result["job_id"]}
+        out = {"status": "queued", "job_id": result["job_id"]}
+        if result.get("queue_position") is not None:
+            out["queue_position"] = result["queue_position"]
+        if result.get("queue_depth") is not None:
+            out["queue_depth"] = result["queue_depth"]
+        return out
     return {"status": "error", "error": f"Unexpected response from image service: {result}"}
 
 
@@ -106,6 +116,11 @@ def check_image_status(job_id: str) -> dict:
     finished PNG -- no further calls needed. Returns status="error" if the job
     failed or the job_id is unknown (job state is kept in memory by the image
     service and is lost if it restarts).
+
+    While queued, also returns `queue_position` (int, 0-indexed number of jobs
+    ahead that must finish first; 0 means yours is next to run) and
+    `queue_depth` (int, total unfinished jobs on the server). Each job typically
+    takes 15s-3min, so `queue_position` times that range is a rough wait estimate.
     """
     result = _request("GET", f"/status/{job_id}")
 
@@ -136,6 +151,10 @@ def check_image_status(job_id: str) -> dict:
     step, total_steps = result.get("step"), result.get("total_steps")
     if step is not None and total_steps is not None:
         out["progress"] = f"{step}/{total_steps} steps"
+    if result.get("queue_position") is not None:
+        out["queue_position"] = result["queue_position"]
+    if result.get("queue_depth") is not None:
+        out["queue_depth"] = result["queue_depth"]
     return out
 
 
