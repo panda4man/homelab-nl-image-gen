@@ -167,7 +167,7 @@ def _fetch_gallery(user_id, limit: int = 50) -> list:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT job_id, prompt, filename, timestamp, origin FROM generations "
-            "WHERE user_id = ? OR origin = 'community' ORDER BY timestamp DESC LIMIT ?",
+            "WHERE user_id = ? OR origin IN ('community', 'ai') ORDER BY timestamp DESC LIMIT ?",
             (user_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
