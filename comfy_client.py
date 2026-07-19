@@ -29,6 +29,19 @@ def list_loras() -> list[str]:
     return r.json()
 
 
+def interrupt(timeout=10) -> None:
+    """Interrupt whatever prompt ComfyUI is currently executing.
+
+    ComfyUI's /interrupt with no body does a *global* interrupt of the one
+    prompt on the GPU right now. Because this app submits prompts strictly one
+    at a time (single worker), that is always the job we mean to cancel -- no
+    prompt_id targeting needed. Returns nothing; ComfyUI replies 200 with an
+    empty body. Raises for any non-2xx (surfaced by the caller).
+    """
+    r = requests.post(f"{COMFY_URL}/interrupt", timeout=timeout)
+    r.raise_for_status()
+
+
 def submit_workflow(workflow: dict, client_id: str | None = None) -> str:
     body = {"prompt": workflow}
     if client_id:
@@ -108,6 +121,8 @@ def wait_for_result_ws(prompt_id: str, client_id: str, save_node_id: str = "7",
                 on_progress(payload.get("value", 0), payload.get("max", 1))
             elif mtype == "execution_error" and payload.get("prompt_id") == prompt_id:
                 raise ComfyError(f"Generation failed: {payload}")
+            elif mtype == "execution_interrupted" and payload.get("prompt_id") == prompt_id:
+                raise ComfyError(f"Generation interrupted: {payload}")
             elif mtype == "executing" and payload.get("prompt_id") == prompt_id and payload.get("node") is None:
                 break
     finally:

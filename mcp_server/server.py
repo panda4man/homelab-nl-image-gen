@@ -187,6 +187,36 @@ def list_checkpoints() -> dict:
 
 
 @mcp.tool()
+def cancel_image_generation(job_id: str) -> dict:
+    """Cancel a queued or in-progress image generation job by its job_id.
+
+    Use this to abort a job you no longer want (from generate_image). A job that
+    is still queued is dropped before it runs; a job that is actively running is
+    interrupted on the GPU. Cancelling a job that has already finished, failed,
+    or was already cancelled is a harmless no-op (cancelled=false). Job state is
+    kept in memory by the image service and is lost if it restarts, so an unknown
+    job_id returns status="error".
+
+    Returns one of:
+      {"status": "cancelled", "cancelled": true}
+      {"status": "done"|"error"|"cancelled", "cancelled": false, "message": str}
+      {"status": "error", "error": str}
+    """
+    result = _request("POST", f"/cancel/{job_id}")
+
+    if "_transport_error" in result:
+        if result.get("_status_code") == 404:
+            return {
+                "status": "error",
+                "error": f"Unknown job_id '{job_id}'. Job state is kept in memory and is "
+                "lost if the image service restarts.",
+            }
+        return {"status": "error", "error": result["_transport_error"]}
+
+    return result
+
+
+@mcp.tool()
 def list_loras() -> dict:
     """List the ComfyUI LoRA files currently installed on the image generation server.
 
