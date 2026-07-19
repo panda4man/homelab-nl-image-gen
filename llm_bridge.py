@@ -3,6 +3,13 @@ import re
 import requests
 from config import LLM_URL, LLM_MODEL
 
+
+def check_alive(timeout=5) -> dict:
+    r = requests.get(f"{LLM_URL}/api/tags", timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
 SYSTEM_PROMPT = """You translate a user's natural language image request into a JSON generation spec for a Stable Diffusion pipeline.
 
 Available checkpoints: {checkpoints}

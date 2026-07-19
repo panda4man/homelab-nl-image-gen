@@ -255,5 +255,31 @@ def list_loras() -> dict:
     return {"status": "ok", "loras": result}
 
 
+@mcp.tool()
+def check_service_health() -> dict:
+    """Check whether the image-generation backends are reachable BEFORE calling
+    generate_image (which can otherwise take up to ~3 minutes only to fail late).
+
+    Pings the ComfyUI backend and the Ollama LLM backend that generate_image
+    depends on. Use this as a cheap preflight; if a backend is unreachable,
+    generation will fail, so surface that to the user instead of queueing a job.
+
+    Returns on success:
+      {"status": "ok", "all_healthy": bool, "services": {
+          "comfyui": {"reachable": bool, "latency_ms": int} | {"reachable": false, "error": str},
+          "ollama":  {"reachable": bool, "latency_ms": int} | {"reachable": false, "error": str}}}
+    where all_healthy is false if any backend is down.
+
+    Returns {"status": "error", "error": str} only when the image-generation
+    web service itself is unreachable.
+    """
+    result = _request("GET", "/health")
+    if isinstance(result, dict) and "_transport_error" in result:
+        return {"status": "error", "error": result["_transport_error"]}
+    return {"status": "ok",
+            "all_healthy": result.get("status") == "ok",
+            "services": result.get("services", {})}
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
