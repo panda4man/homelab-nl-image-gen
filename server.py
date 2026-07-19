@@ -10,6 +10,7 @@ import queue
 import re
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -251,6 +252,25 @@ def loras_route():
     except Exception as e:  # noqa: BLE001 - surface any ComfyUI-reachability issue uniformly
         return jsonify({"error": str(e)}), 502
     return jsonify(loras)
+
+
+@app.route("/health")
+def health_route():
+    # Intentionally unauthenticated: a health check must be cheaply reachable
+    # for infra/agent preflighting without credentials, and MCP_API_KEY is
+    # unset by default in this repo, which would make an authed route unusable
+    # by the MCP server itself.
+    services = {}
+    for name, check in (("comfyui", comfy_client.check_alive), ("ollama", llm_bridge.check_alive)):
+        t0 = time.perf_counter()
+        try:
+            check()
+            services[name] = {"reachable": True, "latency_ms": round((time.perf_counter() - t0) * 1000)}
+        except Exception as e:  # noqa: BLE001 - reachability probe, any failure means "down"
+            services[name] = {"reachable": False, "error": str(e)}
+
+    overall = "ok" if all(s["reachable"] for s in services.values()) else "degraded"
+    return jsonify({"status": overall, "services": services})
 
 
 @app.route("/image/<name>")
