@@ -57,10 +57,12 @@ def worker():
         job_id = job_queue.get()
         try:
             with jobs_lock:
+                if jobs[job_id]["status"] == "cancelled":
+                    continue
                 prompt = jobs[job_id]["prompt"]
                 user_id = jobs[job_id]["user_id"]
                 origin = jobs[job_id]["origin"]
-            _set_job(job_id, status="running")
+                jobs[job_id]["status"] = "running"
 
             checkpoints = comfy_client.list_checkpoints()
             if not checkpoints:
@@ -89,10 +91,15 @@ def worker():
                 image = comfy_client.wait_for_result(prompt_id, save_node_id=save_node_id)
             filename = image["filename"]
 
-            _set_job(job_id, status="done", filename=filename, error=None)
+            with jobs_lock:
+                if jobs[job_id]["status"] == "cancelled":
+                    continue
+                jobs[job_id].update(status="done", filename=filename, error=None)
             _record_generation(job_id, prompt, filename, user_id, origin)
         except Exception as e:  # noqa: BLE001 - worker must never die
-            _set_job(job_id, status="error", error=str(e))
+            with jobs_lock:
+                if jobs[job_id]["status"] != "cancelled":
+                    jobs[job_id].update(status="error", error=str(e))
         finally:
             job_queue.task_done()
 
@@ -224,6 +231,35 @@ def status_route(job_id):
         if job is None:
             return jsonify({"error": "unknown job_id"}), 404
         return jsonify(dict(job))
+
+
+@app.route("/cancel/<job_id>", methods=["POST"])
+@require_auth
+def cancel_route(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            return jsonify({"error": "unknown job_id"}), 404
+        current = job["status"]
+        if current in ("done", "error", "cancelled"):
+            return jsonify({
+                "status": current,
+                "cancelled": False,
+                "message": f"job already {current}; nothing to cancel",
+            })
+        was_running = current == "running"
+        job["status"] = "cancelled"
+
+    if was_running:
+        try:
+            comfy_client.interrupt()
+        except Exception as e:  # noqa: BLE001 - local cancel already applied
+            return jsonify({
+                "status": "cancelled",
+                "cancelled": True,
+                "warning": f"local cancel applied but ComfyUI interrupt failed: {e}",
+            })
+    return jsonify({"status": "cancelled", "cancelled": True})
 
 
 @app.route("/gallery")
