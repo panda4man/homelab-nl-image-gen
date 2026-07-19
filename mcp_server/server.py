@@ -107,23 +107,7 @@ def generate_image(prompt: str, clarified: bool = False) -> dict:
     return {"status": "error", "error": f"Unexpected response from image service: {result}"}
 
 
-@mcp.tool()
-def check_image_status(job_id: str) -> dict:
-    """Check the status of an image generation job by its job_id (from generate_image).
-
-    While running, returns progress as completed/total sampler steps. When
-    finished, returns status="done" and image_url, a directly-loadable URL for the
-    finished PNG -- no further calls needed. Returns status="error" if the job
-    failed or the job_id is unknown (job state is kept in memory by the image
-    service and is lost if it restarts).
-
-    While queued, also returns `queue_position` (int, 0-indexed number of jobs
-    ahead that must finish first; 0 means yours is next to run) and
-    `queue_depth` (int, total unfinished jobs on the server). Each job typically
-    takes 15s-3min, so `queue_position` times that range is a rough wait estimate.
-    """
-    result = _request("GET", f"/status/{job_id}")
-
+def _shaped_status(job_id: str, result: dict) -> dict:
     if "_transport_error" in result:
         if result.get("_status_code") == 404:
             return {
@@ -155,6 +139,51 @@ def check_image_status(job_id: str) -> dict:
         out["queue_position"] = result["queue_position"]
     if result.get("queue_depth") is not None:
         out["queue_depth"] = result["queue_depth"]
+    return out
+
+
+@mcp.tool()
+def check_image_status(job_id: str) -> dict:
+    """Check the status of an image generation job by its job_id (from generate_image).
+
+    While running, returns progress as completed/total sampler steps. When
+    finished, returns status="done" and image_url, a directly-loadable URL for the
+    finished PNG -- no further calls needed. Returns status="error" if the job
+    failed or the job_id is unknown (job state is kept in memory by the image
+    service and is lost if it restarts).
+
+    While queued, also returns `queue_position` (int, 0-indexed number of jobs
+    ahead that must finish first; 0 means yours is next to run) and
+    `queue_depth` (int, total unfinished jobs on the server). Each job typically
+    takes 15s-3min, so `queue_position` times that range is a rough wait estimate.
+    """
+    result = _request("GET", f"/status/{job_id}")
+    return _shaped_status(job_id, result)
+
+
+@mcp.tool()
+def check_image_status_batch(job_ids: list[str]) -> list:
+    """Check the status of multiple image generation jobs in a single call.
+
+    Use this instead of calling check_image_status repeatedly when you have
+    several job_ids to check (e.g. from multiple generate_image calls). Returns
+    a list with one entry per job_id, in the same order given, each entry
+    identical in shape to what check_image_status would return for that id
+    (progress while running, image_url when done, an "unknown job_id" error for
+    ids the service has forgotten). Accepts at most 50 job_ids per call; extra
+    ids beyond 50 are silently dropped. Job state is kept in memory by the image
+    service and is lost if it restarts.
+
+    If the image generation service itself is unreachable, returns a single
+    [{"error": str}] entry instead of per-job entries.
+    """
+    job_ids = job_ids[:50]
+    out = []
+    for jid in job_ids:
+        result = _request("GET", f"/status/{jid}")
+        if "_transport_error" in result and result.get("_status_code") != 404:
+            return [{"error": result["_transport_error"]}]
+        out.append({"job_id": jid, **_shaped_status(jid, result)})
     return out
 
 
