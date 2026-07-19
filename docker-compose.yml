@@ -5,11 +5,11 @@ services:
       - "${PORT:-5001}:${PORT:-5001}"
     environment:
       PORT: "${PORT:-5001}"
-      COMFY_HOST: 192.168.50.121
-      COMFY_PORT: "8188"
-      LLM_HOST: 192.168.50.46
-      LLM_PORT: "11434"
-      LLM_MODEL: qwen3:8b
+      COMFY_HOST: "${COMFY_HOST:-192.168.50.121}"
+      COMFY_PORT: "${COMFY_PORT:-8188}"
+      LLM_HOST: "${LLM_HOST:-192.168.50.46}"
+      LLM_PORT: "${LLM_PORT:-11434}"
+      LLM_MODEL: "${LLM_MODEL:-qwen3:8b}"
       GALLERY_DB_PATH: /data/gallery.db
       SECRET_KEY: "${SECRET_KEY:-dev-insecure-change-me}"
       MCP_API_KEY: "${MCP_API_KEY:-}"
