@@ -243,14 +243,53 @@ task doesn't benefit from reasoning depth anyway — it's filling in a fixed JSO
 solving anything novel. Verified by resubmitting the exact prompt that had timed out: it now
 reaches ComfyUI and completes normally (`nl_gen_00029_.png`, 25/25 steps, image loads).
 
+## Session 6: LoRA library
+
+Picked up the queued LoRA follow-up from Session 5. Verified real CivitAI download URLs via
+their API (never guessed model IDs, same discipline as the ChimeraMi/Juggernaut checkpoint
+picks) and downloaded three SDXL 1.0 LoRAs into `models/loras/` on the local ComfyUI install:
+
+- `add-detail-xl.safetensors` — "Detail Tweaker XL" (civitai.com/models/122359), general
+  detail/texture booster, ungated download.
+- `CinematicStyle_v1.safetensors` — "Cinematic Shot✨" SDXL version (civitai.com/models/432586),
+  film-look lighting/color grading, creator-gated (needed a CivitAI API key — used the one
+  already configured in the sibling `comfyui-manager` project's `download-models.sh`, which
+  handles both the model-page-URL and gated-download cases).
+- `anime-enhancer-xl.safetensors` — originally downloaded as `enhancerV4-xl.safetensors`
+  ("Anime Enhancer" civitai.com/models/348852, SDXL V4), creator-gated. **Renamed on disk**
+  after the first live test: the LLM was picking it for a plain "highly detailed" prompt
+  instead of the actual detail-tweaker LoRA, because `enhancerV4-xl` doesn't say "anime"
+  anywhere and the model latched onto "enhancer" generically. A self-describing filename
+  fixed it outright — cheaper and more robust than hardcoding a name→description lookup
+  table in the prompt, and it stays correct for any LoRA added later without code changes.
+
+Wired end-to-end:
+- `comfy_client.list_loras()` already existed (hits ComfyUI's `/models/loras`), just wasn't
+  used anywhere yet.
+- `llm_bridge.SYSTEM_PROMPT` gained an `Available LoRAs: {loras}` line and a `"loras"` output
+  field (0-2 objects, `{"name", "strength"}`) with guidance tying each LoRA's filename keyword
+  to when the LLM should pick it. `build_spec()` now takes a `loras` list, validates each
+  returned entry against it (unknown names dropped, strength clamped to `[0.0, 2.0]`, capped
+  at 2 entries) — fails safe to an empty list rather than erroring.
+- `workflow_builder.build_workflow()` threads a `LoraLoader` chain between the
+  `CheckpointLoaderSimple` node and every downstream model/clip consumer (`CLIPTextEncode`,
+  both `KSampler`s, `FaceDetailer`) — composes with the existing hires/face_fix passes.
+- Added `/loras` route (`server.py`, mirrors `/checkpoints`) and `list_loras` MCP tool
+  (`mcp_server/server.py`, mirrors `list_checkpoints`) for visibility/parity, though nothing
+  currently lets a caller override the LLM's pick (same pattern as checkpoints).
+- `server.py`'s worker fetches LoRAs alongside checkpoints before calling `build_spec()`;
+  wrapped in try/except so a ComfyUI LoRA-listing hiccup never blocks generation (checkpoints
+  stay a hard requirement, LoRAs stay optional).
+
+Verified live end-to-end inside the running container (real Ollama calls, real ComfyUI
+submission, real 8188 host, no mocking): a "highly detailed, intricate" prompt reliably picked
+`add-detail-xl` alone; an anime-themed prompt picked `anime-enhancer-xl` alone; a plain prompt
+picked no LoRAs (LLM doesn't stack speculatively); a "cinematic, highly detailed" prompt
+rendered through a real `LoraLoader` chain end to end (`nl_gen_00035_.png`) — visibly more
+dramatic/film-like lighting than the base checkpoint alone.
+
 ## Open items (not started)
 
-- **LoRA library.** Zero LoRAs currently installed (just the placeholder `put_loras_here`
-  directory). Plan was to pick a few general-purpose style/detail LoRAs from CivitAI, verify
-  real download URLs (don't guess CivitAI model IDs/URLs — verify via their API first, as
-  done for both ChimeraMi and Juggernaut earlier), and wire `llm_bridge.py` +
-  `workflow_builder.py` to select/stack them via a `LoraLoader` node. User paused here to
-  stop for the day, not because of any blocker.
 - Unraid deployment itself hasn't happened yet — everything has been tested via
   `docker compose` on the Mac, against the real LAN ComfyUI/Ollama hosts. The app is designed
   to be host-agnostic (see Session 2), so moving the container to the actual Unraid box

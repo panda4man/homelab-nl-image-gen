@@ -65,8 +65,12 @@ def worker():
             checkpoints = comfy_client.list_checkpoints()
             if not checkpoints:
                 raise RuntimeError("No checkpoints found on ComfyUI server.")
+            try:
+                loras = comfy_client.list_loras()
+            except Exception:  # noqa: BLE001 - LoRAs are optional, never block generation
+                loras = []
 
-            spec = llm_bridge.build_spec(prompt, checkpoints)
+            spec = llm_bridge.build_spec(prompt, checkpoints, loras)
             workflow, save_node_id = build_workflow(spec)
             prompt_id = comfy_client.submit_workflow(workflow, client_id=job_id)
 
@@ -237,6 +241,16 @@ def checkpoints_route():
     except Exception as e:  # noqa: BLE001 - surface any ComfyUI-reachability issue uniformly
         return jsonify({"error": str(e)}), 502
     return jsonify(checkpoints)
+
+
+@app.route("/loras")
+@require_auth
+def loras_route():
+    try:
+        loras = comfy_client.list_loras()
+    except Exception as e:  # noqa: BLE001 - surface any ComfyUI-reachability issue uniformly
+        return jsonify({"error": str(e)}), 502
+    return jsonify(loras)
 
 
 @app.route("/image/<name>")

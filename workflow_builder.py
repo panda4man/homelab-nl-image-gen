@@ -15,46 +15,66 @@ def build_workflow(spec: dict) -> tuple[dict, str]:
       Pack's FaceDetailer) after whichever image is currently final. Safe to
       combine with hires (runs after it) or use alone; a no-op if no face is
       detected in the frame.
-    Both are optional and compose: base -> [hires] -> [face_fix] -> save.
+    - spec["loras"]: list of {"name", "strength"}, chained as LoraLoader nodes
+      between the checkpoint and every downstream model/clip consumer.
+    Both hires/face_fix are optional and compose: base -> [hires] -> [face_fix] -> save.
     """
     scheduler = spec.get("scheduler", "normal")
 
     workflow = {
-        "1": {
-            "inputs": {"text": spec["positive_prompt"], "clip": ["3", 1]},
-            "class_type": "CLIPTextEncode",
-        },
-        "2": {
-            "inputs": {"text": spec["negative_prompt"], "clip": ["3", 1]},
-            "class_type": "CLIPTextEncode",
-        },
         "3": {
             "inputs": {"ckpt_name": spec["checkpoint"]},
             "class_type": "CheckpointLoaderSimple",
         },
-        "4": {
+    }
+
+    model_ref = ["3", 0]
+    clip_ref = ["3", 1]
+    for i, lora in enumerate(spec.get("loras") or []):
+        node_id = f"2{i}"
+        workflow[node_id] = {
             "inputs": {
-                "seed": spec["seed"],
-                "steps": spec["steps"],
-                "cfg": spec["cfg"],
-                "sampler_name": spec["sampler_name"],
-                "scheduler": scheduler,
-                "denoise": 1.0,
-                "model": ["3", 0],
-                "positive": ["1", 0],
-                "negative": ["2", 0],
-                "latent_image": ["5", 0],
+                "lora_name": lora["name"],
+                "strength_model": lora["strength"],
+                "strength_clip": lora["strength"],
+                "model": model_ref,
+                "clip": clip_ref,
             },
-            "class_type": "KSampler",
+            "class_type": "LoraLoader",
+        }
+        model_ref = [node_id, 0]
+        clip_ref = [node_id, 1]
+
+    workflow["1"] = {
+        "inputs": {"text": spec["positive_prompt"], "clip": clip_ref},
+        "class_type": "CLIPTextEncode",
+    }
+    workflow["2"] = {
+        "inputs": {"text": spec["negative_prompt"], "clip": clip_ref},
+        "class_type": "CLIPTextEncode",
+    }
+    workflow["4"] = {
+        "inputs": {
+            "seed": spec["seed"],
+            "steps": spec["steps"],
+            "cfg": spec["cfg"],
+            "sampler_name": spec["sampler_name"],
+            "scheduler": scheduler,
+            "denoise": 1.0,
+            "model": model_ref,
+            "positive": ["1", 0],
+            "negative": ["2", 0],
+            "latent_image": ["5", 0],
         },
-        "5": {
-            "inputs": {
-                "width": spec["width"],
-                "height": spec["height"],
-                "batch_size": 1,
-            },
-            "class_type": "EmptyLatentImage",
+        "class_type": "KSampler",
+    }
+    workflow["5"] = {
+        "inputs": {
+            "width": spec["width"],
+            "height": spec["height"],
+            "batch_size": 1,
         },
+        "class_type": "EmptyLatentImage",
     }
 
     if spec.get("hires"):
@@ -74,7 +94,7 @@ def build_workflow(spec: dict) -> tuple[dict, str]:
                 "sampler_name": spec["sampler_name"],
                 "scheduler": scheduler,
                 "denoise": HIRES_DENOISE,
-                "model": ["3", 0],
+                "model": model_ref,
                 "positive": ["1", 0],
                 "negative": ["2", 0],
                 "latent_image": ["8", 0],
@@ -101,8 +121,8 @@ def build_workflow(spec: dict) -> tuple[dict, str]:
         workflow["13"] = {
             "inputs": {
                 "image": image_node,
-                "model": ["3", 0],
-                "clip": ["3", 1],
+                "model": model_ref,
+                "clip": clip_ref,
                 "vae": ["3", 2],
                 "guide_size": 512,
                 "guide_size_for": True,

@@ -7,6 +7,8 @@ SYSTEM_PROMPT = """You translate a user's natural language image request into a 
 
 Available checkpoints: {checkpoints}
 
+Available LoRAs (style/detail adapters that stack on top of the checkpoint): {loras}
+
 Output ONLY a JSON object with these fields:
 {{
   "positive_prompt": "the user's AFFIRMATIVE original request content, verbatim and unmodified, followed by a comma and additional style/quality/lighting tags you append",
@@ -31,6 +33,13 @@ Output ONLY a JSON object with these fields:
     objects, abstract scenes, or anything without a clear face in frame. This runs a
     dedicated face-detection-and-refine pass; it costs extra time, so only set it when
     a face is actually likely to be in the image.
+  "loras": a list of 0-2 objects {{"name": "<one of the available LoRAs above>", "strength": float}}.
+    Only include a LoRA when the request clearly calls for what it does — an
+    "add-detail"/"detail-tweaker" LoRA for requests emphasizing extreme detail/texture
+    (strength 1.0-1.5), a "cinematic"/"style" LoRA for film-look/cinematic-lighting
+    requests (strength 0.6-1.0), an "anime"/"enhancer" LoRA for anime/manga-style
+    requests (strength 0.6-1.0). Default to an empty list for ordinary requests — do
+    not stack LoRAs speculatively.
 }}
 
 Rules:
@@ -109,8 +118,9 @@ def _scheduler_for_checkpoint(checkpoint: str) -> str:
     return "karras"
 
 
-def build_spec(user_prompt: str, checkpoints: list[str]) -> dict:
-    system = SYSTEM_PROMPT.format(checkpoints=", ".join(checkpoints))
+def build_spec(user_prompt: str, checkpoints: list[str], loras: list[str] | None = None) -> dict:
+    loras = loras or []
+    system = SYSTEM_PROMPT.format(checkpoints=", ".join(checkpoints), loras=", ".join(loras) or "none installed")
 
     r = requests.post(
         f"{LLM_URL}/api/chat",
@@ -152,6 +162,18 @@ def build_spec(user_prompt: str, checkpoints: list[str]) -> dict:
 
     spec["hires"] = bool(spec.get("hires", False))
     spec["face_fix"] = bool(spec.get("face_fix", False))
+
+    valid_loras = []
+    for entry in spec.get("loras") or []:
+        if not isinstance(entry, dict) or entry.get("name") not in loras:
+            continue
+        try:
+            strength = float(entry.get("strength", 0.8))
+        except (TypeError, ValueError):
+            strength = 0.8
+        strength = max(0.0, min(strength, 2.0))
+        valid_loras.append({"name": entry["name"], "strength": strength})
+    spec["loras"] = valid_loras[:2]
 
     affirmative_prompt = _strip_negations(user_prompt).strip()
     if affirmative_prompt and affirmative_prompt.lower() not in spec["positive_prompt"].lower():

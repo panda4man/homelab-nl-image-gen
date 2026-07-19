@@ -105,7 +105,9 @@ Unraid).
   `juggernautXL_ragnarok.safetensors` (general/quality default, 20-30 steps + karras).
 - Custom nodes installed: ComfyUI-Impact-Pack + ComfyUI-Impact-Subpack (face detection/
   refinement), with `face_yolov8m.pt` in `models/ultralytics/bbox/`.
-- No LoRAs installed yet (queued follow-up, not started — see `HISTORY.md` open items).
+- LoRAs: `add-detail-xl.safetensors` (detail), `CinematicStyle_v1.safetensors` (cinematic),
+  `anime-enhancer-xl.safetensors` (anime). The LLM picks 0-2 per prompt automatically (see
+  `HISTORY.md` Session 6).
 - ComfyUI's own LaunchAgent (`~/Library/LaunchAgents/com.local.run-comfyui.plist`) had a
   broken `ProgramArguments` path (fixed last session) — if ComfyUI is ever unreachable and
   `make status` shows it not running, check `launchctl print gui/$(id -u)/com.local.run-comfyui`

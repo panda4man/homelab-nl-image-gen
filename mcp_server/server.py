@@ -186,5 +186,25 @@ def list_checkpoints() -> dict:
     return {"status": "ok", "checkpoints": result}
 
 
+@mcp.tool()
+def list_loras() -> dict:
+    """List the ComfyUI LoRA files currently installed on the image generation server.
+
+    Informational only: generate_image does not currently accept a LoRA override,
+    the LLM automatically picks 0-2 based on the prompt (e.g. a detail-enhancer for
+    highly-detailed requests, a cinematic/anime style LoRA when the prompt calls for
+    it). Use this to see what's available, not to select one.
+
+    Returns {"status": "ok", "loras": [str, ...]} or
+    {"status": "error", "error": str}.
+    """
+    result = _request("GET", "/loras")
+
+    if isinstance(result, dict) and "_transport_error" in result:
+        return {"status": "error", "error": result["_transport_error"]}
+
+    return {"status": "ok", "loras": result}
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
