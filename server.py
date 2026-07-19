@@ -42,6 +42,7 @@ init_auth(app, _LOGIN_HTML_PATH)
 job_queue: "queue.Queue[str]" = queue.Queue()
 jobs: dict = {}
 jobs_lock = threading.Lock()
+_job_seq = 0
 
 # Bare filename ComfyUI would produce via SaveImage, e.g. nl_gen_00007_.png
 _FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
@@ -50,6 +51,19 @@ _FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.(png|jpg|jpeg|webp)$", re.IGNORECA
 def _set_job(job_id: str, **fields):
     with jobs_lock:
         jobs[job_id].update(fields)
+
+
+def _queue_depth_locked():
+    return sum(1 for j in jobs.values() if j["status"] in ("queued", "running"))
+
+
+def _queue_position_locked(job):
+    if job["status"] != "queued":
+        return None
+    return sum(
+        1 for j in jobs.values()
+        if j["status"] in ("queued", "running") and j["seq"] < job["seq"]
+    )
 
 
 def worker():
@@ -208,7 +222,9 @@ def generate_route():
 
     job_id = uuid.uuid4().hex
     user_id, origin = current_actor()
+    global _job_seq
     with jobs_lock:
+        _job_seq += 1
         jobs[job_id] = {
             "status": "queued",
             "prompt": prompt,
@@ -218,9 +234,12 @@ def generate_route():
             "total_steps": None,
             "user_id": user_id,
             "origin": origin,
+            "seq": _job_seq,
         }
+        depth = _queue_depth_locked()
+        position = _queue_position_locked(jobs[job_id])
     job_queue.put(job_id)
-    return jsonify({"job_id": job_id})
+    return jsonify({"job_id": job_id, "queue_position": position, "queue_depth": depth})
 
 
 @app.route("/status/<job_id>")
@@ -230,7 +249,10 @@ def status_route(job_id):
         job = jobs.get(job_id)
         if job is None:
             return jsonify({"error": "unknown job_id"}), 404
-        return jsonify(dict(job))
+        resp = dict(job)
+        resp["queue_depth"] = _queue_depth_locked()
+        resp["queue_position"] = _queue_position_locked(job)
+        return jsonify(resp)
 
 
 @app.route("/cancel/<job_id>", methods=["POST"])
