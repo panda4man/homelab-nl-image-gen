@@ -191,6 +191,7 @@
     <div class="status-row" v-if="submitting || jobStatus">
       <div class="spinner" v-if="isBusy"></div>
       <span>{{ statusText }}</span>
+      <span v-if="basePrompt && jobStatus" style="font-style:italic;">"{{ basePrompt }}"</span>
     </div>
     <div class="progress-track" v-if="jobStatus === 'running' && totalSteps">
       <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
@@ -233,6 +234,7 @@ createApp({
       errorText: "",
       gallery: [],
       pollTimer: null,
+      discoverTimer: null,
       selectedImage: null,
       user: null,
     };
@@ -322,11 +324,13 @@ createApp({
           this.totalSteps = data.total_steps;
           if (data.status === "done") {
             clearInterval(this.pollTimer);
-            this.gallery.unshift({
-              job_id: this.jobId,
-              prompt: this.basePrompt,
-              filename: data.filename,
-            });
+            if (!this.gallery.some(g => g.job_id === this.jobId)) {
+              this.gallery.unshift({
+                job_id: this.jobId,
+                prompt: this.basePrompt,
+                filename: data.filename,
+              });
+            }
             this.prompt = "";
           } else if (data.status === "error") {
             clearInterval(this.pollTimer);
@@ -362,10 +366,35 @@ createApp({
         // user load failure is non-fatal
       }
     },
+    async discoverActive() {
+      if (this.submitting) return;
+      if (this.jobId && (this.jobStatus === "queued" || this.jobStatus === "running")) return;
+      try {
+        const res = await fetch("/active");
+        if (res.status === 401) { window.location.href = "/login"; return; }
+        const data = await res.json();
+        if (!res.ok || !data.job_id) return;
+        if (data.job_id === this.jobId) return;
+        this.jobId = data.job_id;
+        this.basePrompt = data.prompt || "";
+        this.jobStatus = data.status;
+        this.step = data.step;
+        this.totalSteps = data.total_steps;
+        this.errorText = "";
+        this.pollStatus();
+      } catch (e) {
+        // discovery failure is non-fatal
+      }
+    },
   },
   mounted() {
     this.loadUser();
     this.loadGallery();
+    this.discoverActive();
+    this.discoverTimer = setInterval(this.discoverActive, 3000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) this.discoverActive();
+    });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") this.selectedImage = null;
     });

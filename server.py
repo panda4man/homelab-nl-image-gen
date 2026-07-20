@@ -256,6 +256,30 @@ def status_route(job_id):
         return jsonify(resp)
 
 
+@app.route("/active")
+@require_auth
+def active_route():
+    user_id, _origin = current_actor()
+    # API-key / AI actor has user_id=None; never surface AI-originated jobs as "your" job.
+    if user_id is None:
+        return jsonify({"job_id": None})
+    with jobs_lock:
+        candidates = [
+            (jid, j) for jid, j in jobs.items()
+            if j["user_id"] == user_id and j["status"] in ("queued", "running")
+        ]
+        if not candidates:
+            return jsonify({"job_id": None})
+        # Prefer the running job; otherwise the one that's been queued longest.
+        candidates.sort(key=lambda kv: (kv[1]["status"] != "running", kv[1]["seq"]))
+        jid, job = candidates[0]
+        resp = dict(job)
+        resp["job_id"] = jid
+        resp["queue_depth"] = _queue_depth_locked()
+        resp["queue_position"] = _queue_position_locked(job)
+        return jsonify(resp)
+
+
 @app.route("/cancel/<job_id>", methods=["POST"])
 @require_auth
 def cancel_route(job_id):
