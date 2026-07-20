@@ -3,9 +3,9 @@ services:
     build: .
     env_file: .env
     ports:
-      - "${PORT:-5001}:${PORT:-5001}"
+      - "${APP_PORT:-5001}:${APP_PORT:-5001}"
     environment:
-      PORT: "${PORT:-5001}"
+      PORT: "${APP_PORT:-5001}"
       COMFY_HOST: "${COMFY_HOST:-192.168.50.121}"
       COMFY_PORT: "${COMFY_PORT:-8188}"
       LLM_HOST: "${LLM_HOST:-192.168.50.46}"
@@ -27,8 +27,8 @@ services:
     ports:
       - "${MCP_PORT:-8000}:${MCP_PORT:-8000}"
     environment:
-      NL_IMAGE_GEN_URL: http://nl-image-gen:${PORT:-5001}
-      NL_IMAGE_GEN_PUBLIC_URL: http://192.168.50.46:${PORT:-5001}
+      NL_IMAGE_GEN_URL: http://nl-image-gen:${APP_PORT:-5001}
+      NL_IMAGE_GEN_PUBLIC_URL: http://192.168.50.46:${APP_PORT:-5001}
       MCP_HOST: 0.0.0.0
       MCP_PORT: "${MCP_PORT:-8000}"
       MCP_API_KEY: "${MCP_API_KEY:-}"
