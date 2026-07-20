@@ -177,15 +177,15 @@
   <h1>Family Image Generator</h1>
 
   <div class="card">
-    <textarea v-model="prompt" placeholder="Describe the image you want..." :disabled="submitting"></textarea>
+    <textarea v-model="prompt" placeholder="Describe the image you want..." :disabled="isBusy"></textarea>
 
     <div v-if="clarifyQuestion">
       <p class="clarify-question">{{ clarifyQuestion }}</p>
-      <input type="text" v-model="clarifyAnswer" placeholder="Your answer" :disabled="submitting" @keyup.enter="submitClarify">
-      <button @click="submitClarify" :disabled="submitting || !clarifyAnswer.trim()">Continue</button>
+      <input type="text" v-model="clarifyAnswer" placeholder="Your answer" :disabled="isBusy" @keyup.enter="submitClarify">
+      <button @click="submitClarify" :disabled="isBusy || !clarifyAnswer.trim()">Continue</button>
     </div>
     <div v-else>
-      <button @click="submit" :disabled="submitting || !prompt.trim()">Generate</button>
+      <button @click="submit" :disabled="isBusy || !prompt.trim()">Generate</button>
     </div>
 
     <div class="status-row" v-if="submitting || jobStatus">

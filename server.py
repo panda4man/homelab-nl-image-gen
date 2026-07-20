@@ -225,6 +225,11 @@ def generate_route():
     user_id, origin = current_actor()
     global _job_seq
     with jobs_lock:
+        if user_id is not None and any(
+            j["user_id"] == user_id and j["status"] in ("queued", "running")
+            for j in jobs.values()
+        ):
+            return jsonify({"error": "You already have a generation in progress."}), 409
         _job_seq += 1
         jobs[job_id] = {
             "status": "queued",
