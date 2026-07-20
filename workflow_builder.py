@@ -2,7 +2,7 @@ HIRES_SCALE_BY = 1.5
 HIRES_DENOISE = 0.5
 
 FACE_DETECTOR_MODEL = "bbox/face_yolov8m.pt"
-FACE_DETAILER_DENOISE = 0.4
+FACE_DETAILER_DENOISE = 0.3
 
 
 def build_workflow(spec: dict) -> tuple[dict, str]:

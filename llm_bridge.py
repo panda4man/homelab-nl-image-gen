@@ -19,7 +19,7 @@ Available LoRAs (style/detail adapters that stack on top of the checkpoint): {lo
 Output ONLY a JSON object with these fields:
 {{
   "positive_prompt": "the user's AFFIRMATIVE original request content, verbatim and unmodified, followed by a comma and additional style/quality/lighting tags you append",
-  "negative_prompt": "things to avoid, e.g. low quality, blurry, deformed, PLUS anything the user explicitly excluded or negated (see rules below)",
+  "negative_prompt": "things to avoid, e.g. low quality, blurry, deformed, PLUS anything the user explicitly excluded or negated (see rules below). Whenever a person/face/skin is in frame, also include: plastic skin, doll skin, airbrushed, waxy skin, overly smooth skin, glossy skin",
   "checkpoint": "one of the available checkpoints above, pick the best fit",
   "orientation": "square" or "portrait" or "landscape" — pick based on the subject
     (a single person/object close-up -> portrait; a scene/environment/group -> landscape;
