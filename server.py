@@ -225,6 +225,11 @@ def generate_route():
     user_id, origin = current_actor()
     global _job_seq
     with jobs_lock:
+        if user_id is not None and any(
+            j["user_id"] == user_id and j["status"] in ("queued", "running")
+            for j in jobs.values()
+        ):
+            return jsonify({"error": "You already have a generation in progress."}), 409
         _job_seq += 1
         jobs[job_id] = {
             "status": "queued",
@@ -251,6 +256,30 @@ def status_route(job_id):
         if job is None:
             return jsonify({"error": "unknown job_id"}), 404
         resp = dict(job)
+        resp["queue_depth"] = _queue_depth_locked()
+        resp["queue_position"] = _queue_position_locked(job)
+        return jsonify(resp)
+
+
+@app.route("/active")
+@require_auth
+def active_route():
+    user_id, _origin = current_actor()
+    # API-key / AI actor has user_id=None; never surface AI-originated jobs as "your" job.
+    if user_id is None:
+        return jsonify({"job_id": None})
+    with jobs_lock:
+        candidates = [
+            (jid, j) for jid, j in jobs.items()
+            if j["user_id"] == user_id and j["status"] in ("queued", "running")
+        ]
+        if not candidates:
+            return jsonify({"job_id": None})
+        # Prefer the running job; otherwise the one that's been queued longest.
+        candidates.sort(key=lambda kv: (kv[1]["status"] != "running", kv[1]["seq"]))
+        jid, job = candidates[0]
+        resp = dict(job)
+        resp["job_id"] = jid
         resp["queue_depth"] = _queue_depth_locked()
         resp["queue_position"] = _queue_position_locked(job)
         return jsonify(resp)
