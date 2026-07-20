@@ -1,6 +1,7 @@
 services:
   nl-image-gen:
     build: .
+    env_file: .env
     ports:
       - "${PORT:-5001}:${PORT:-5001}"
     environment:
@@ -22,6 +23,7 @@ services:
 
   nl-image-gen-mcp:
     build: ./mcp_server
+    env_file: .env
     ports:
       - "${MCP_PORT:-8000}:${MCP_PORT:-8000}"
     environment:
