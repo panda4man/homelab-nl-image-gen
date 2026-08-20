@@ -19,7 +19,7 @@ services:
       OAUTH_REDIRECT_BASE: "${OAUTH_REDIRECT_BASE:-}"
     volumes:
       - gallery-data:/data
-    restart: unless-stopped
+    restart: always
 
   nl-image-gen-mcp:
     build: ./mcp_server
@@ -34,7 +34,7 @@ services:
       MCP_API_KEY: "${MCP_API_KEY:-}"
     depends_on:
       - nl-image-gen
-    restart: unless-stopped
+    restart: always
 
 volumes:
   gallery-data:
