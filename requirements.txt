@@ -3,3 +3,4 @@ flask
 websocket-client
 flask-login
 authlib
+gunicorn

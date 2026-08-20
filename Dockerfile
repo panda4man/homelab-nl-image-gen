@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 5001
 
-CMD ["python3", "server.py"]
+CMD ["sh", "-c", "gunicorn -w 1 --threads 8 -b 0.0.0.0:${PORT:-5001} server:app"]
