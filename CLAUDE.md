@@ -73,6 +73,15 @@ Replace `<your-model-id>` with your active model:
 
 The `model=` parameter rides on the existing `plan_turn` call — it does **not** add a separate tool invocation. If `plan_turn` is not appropriate for a non-code task, call `announce_model(model="...")` once instead.
 
+## Ollama server (host: this Mac)
+
+Ollama runs on this Mac via Homebrew launchd, not in this repo's Docker stack. App config in `.env` (`LLM_HOST`/`LLM_PORT`, `EMBED_HOST`/`EMBED_PORT`) points at it — `.env` currently has `LLM_HOST=192.168.50.46`, but this Mac's actual LAN IPs are `192.168.50.121` (en0) and `192.168.50.139` (en1), not `.46`. Confirm which address is current before relying on `.env`.
+
+- Service plist: `~/Library/LaunchAgents/sh.brew.ollama.plist`. Older `homebrew.mxcl.ollama.plist` in the same dir is stale/unused — current Homebrew versions relabeled the service `sh.brew.ollama`.
+- Must set `OLLAMA_HOST=0.0.0.0:11434` in that plist's `EnvironmentVariables` for LAN access — Ollama defaults to `127.0.0.1` (loopback-only), which blocks other machines on the LAN even though the port is "up".
+- **Reload with `launchctl unload`/`load` on the plist path, never `brew services restart`** — `brew services restart` regenerates the plist from the formula's default service block and silently wipes manual `EnvironmentVariables` edits (confirmed 2026-09-23).
+- Verify bind after any change: `lsof -i :11434` — want `*:11434`, not `localhost:11434`.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
